@@ -1,11 +1,12 @@
 import asyncio
 import logging
 import os
+from datetime import timedelta
 from typing import Any, List, Optional
 from urllib.parse import quote
 
 import discord
-from discord import Embed, Color, DMChannel, Thread
+from discord import Embed, Color, DMChannel, Thread, Poll
 from discord.ext import commands
 from discord.ui import View
 from dotenv import load_dotenv
@@ -316,6 +317,35 @@ class DiscordBot(BaseBot):
         Returns:
             Discord message object
         """
+        channel = context.thread or context.channel
+
+        # Detect and handle <poll> tags
+        if "<poll>" in message and "</poll>" in message:
+            try:
+                start = message.index("<poll>") + len("<poll>")
+                end = message.index("</poll>")
+                poll_content = message[start:end].strip()
+                parts = [p.strip() for p in poll_content.split("|")]
+
+                if len(parts) >= 2:
+                    question = parts[0]
+                    options = parts[1:10]  # Discord allows max 10 options
+
+                    poll = Poll(question=question, duration=timedelta(hours=24))
+                    for option in options:
+                        poll.add_answer(text=option)
+                    await channel.send(poll=poll)
+
+                    # Remove poll tag from message
+                    message = message[:message.index("<poll>")] + message[end + len("</poll>"):]
+                    message = message.strip()
+
+                    # If no remaining message, we're done
+                    if not message:
+                        return
+            except Exception as e:
+                logger.error(f"Error creating poll: {e}")
+
         if context.thread:
             return await context.thread.send(message, view=view, embed=embed)
         else:
