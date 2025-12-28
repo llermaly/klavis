@@ -11,7 +11,7 @@ import markitdown
 import time
 from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters, stdio_client
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from mcp_clients.llms.anthropic import Anthropic
 from mcp_clients.llms.base import Conversation, BaseLLM, LLMMessageFormat, ContentType, MessageRole, \
@@ -164,8 +164,13 @@ class MCPClient:
             self.exit_stacks[server_id] = exit_stack
 
             if urlparse(url).scheme in ("http", "https"):
-                # Use SSE client for HTTP(S) URLs
-                streams = await exit_stack.enter_async_context(sse_client(url))
+                # Use streamable HTTP client for HTTP(S) URLs
+                headers = {}
+                if os.environ.get("ELASTIC_API_KEY"):
+                    headers["Authorization"] = f"ApiKey {os.environ['ELASTIC_API_KEY']}"
+                streams = await exit_stack.enter_async_context(streamablehttp_client(url, headers=headers))
+                # streamablehttp_client returns (read_stream, write_stream, get_session_id) - only need first 2
+                session = await exit_stack.enter_async_context(ClientSession(streams[0], streams[1]))
             else:
                 # Use stdio client for commands
                 server_parameters = StdioServerParameters(
@@ -174,8 +179,7 @@ class MCPClient:
                 streams = await exit_stack.enter_async_context(
                     stdio_client(server_parameters)
                 )
-
-            session = await exit_stack.enter_async_context(ClientSession(*streams))
+                session = await exit_stack.enter_async_context(ClientSession(*streams))
 
             # Initialize the session
             logger.info(f"Initializing session for server {server_id}")
